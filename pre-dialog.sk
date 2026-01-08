@@ -1,0 +1,94 @@
+import:
+    io.papermc.paper.registry.RegistryAccess
+    io.papermc.paper.registry.RegistryKey
+    io.papermc.paper.event.connection.configuration.AsyncPlayerConnectionConfigureEvent
+    io.papermc.paper.event.player.PlayerCustomClickEvent
+    com.destroystokyo.paper.event.player.PlayerConnectionCloseEvent
+    io.papermc.paper.connection.PlayerConfigurationConnection
+    java.util.concurrent.CompletableFuture
+    java.util.concurrent.TimeUnit
+    net.kyori.adventure.text.Component
+    net.kyori.adventure.text.format.NamedTextColor
+    net.kyori.adventure.key.Key
+
+    org.bukkit.event.entity.EntityToggleGlideEvent
+
+registry registration:
+    register new multi action dialog with id "main":
+        title: ""
+        can_close_with_escape: true
+        body:
+            set {_m::1} to mini message from "&7%nl%&7%nl%&7%nl%&7%nl%%nl%%nl%%nl%%nl%&7%nl%<##B6F3FF><shadow:#FFFFFF>Would you like to join the "
+            set {_m::2} to mini message from "<shadow:#B6F3FF><hover:show_text:""Currently sending you to: <##B6F3FF>Survival""><white>server"
+            set {_m::3} to mini message from "<shadow:#FFFFFF><##B6F3FF>?"
+            add text body: 
+                contents: merge components {_m::*}
+                width: 300
+        actions:
+            add dynamic action button:
+                label: minimessage from "<##96FF6A><shadow:#FFFFFF>Yes"
+                id: "main/agree"
+            
+            add dynamic action button:
+                label: minimessage from "<##FF6A6A><shadow:#FFFFFF>No"
+                id: "main/disagree"
+
+function get_dialog(key:string):: object:
+    set {_registry} to RegistryAccess.registryAccess().getRegistry(RegistryKey.DIALOG)
+    if {_registry} is null:
+        return null
+    return {_registry}.get(Key.key({_key}))
+
+function set_join_result(key:string, value: boolean):
+    set {_future} to {-dialog::%{_key}%}
+    if {_future} is set:
+        {_future}.complete({_value})
+
+on AsyncPlayerConnectionConfigureEvent:
+    set {_dialog} to get_dialog("main")
+    if {_dialog} is not set:
+        stop
+
+    set {_connection} to event.getConnection()
+    set {_uuid} to {_connection}.getProfile().getId()
+    if {_uuid} is not set:
+        stop
+
+    set {_future} to new CompletableFuture()
+    {_future}.completeOnTimeout(false, 1, TimeUnit.MINUTES)
+
+    set {_key} to "%{_uuid}%"
+    set {-dialog::%{_key}%} to {_future}
+    set {_audience} to {_connection}.getAudience()
+    {_audience}.showDialog({_dialog})
+
+    set {_result} to {_future}.join()
+    if {_result} != true:
+        {_audience}.closeDialog()
+        {_connection}.disconnect(Component.text("You did not want to join" , NamedTextColor.WHITE))
+    delete {-dialog::%{_key}%}
+
+on custom click:
+    set {_connection} to event.getCommonConnection()
+    if "%{_connection}%" doesn't contain "PlayerConfigurationConnection":
+        stop
+
+    set {_uuid} to {_connection}.getProfile().getId()
+    if {_uuid} is null:
+        stop
+
+    set {_audience} to {_connection}.getAudience()
+    set {_identifier} to event.getIdentifier()
+
+    if {_identifier}.equals(Key.key("main/agree")):
+        set_join_result("%{_uuid}%", true)
+
+    else if {_identifier}.equals(Key.key("main/disagree")):
+        set_join_result("%{_uuid}%", false)
+
+on PlayerConnectionCloseEvent:
+    set {_uuid} to event.getPlayerUniqueId()
+    if {_uuid} is not set:
+        stop
+    set {_key} to "%{_uuid}%"
+    delete {-dialog::%{_key}%}
